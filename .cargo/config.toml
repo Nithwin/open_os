@@ -1,0 +1,6 @@
+[build]
+# This tells Cargo to ALWAYS compile for our bare-metal target!
+target = "x86_64-unknown-none"
+
+[target.x86_64-unknown-none]
+runner = "bootimage runner"
