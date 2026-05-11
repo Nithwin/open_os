@@ -1,6 +1,14 @@
-[build]
-# This tells Cargo to ALWAYS compile for our bare-metal target!
-target = "x86_64-unknown-none"
+[unstable]
+# Recompile the core library for our custom hardware
+build-std = ["core", "compiler_builtins"]
+build-std-features = ["compiler-builtins-mem"]
+# THIS IS THE NEW LINE: Grant permission to use our JSON file!
+json-target-spec = true 
 
-[target.x86_64-unknown-none]
+[build]
+# Point to our new JSON blueprint
+target = "x86_64-nyx.json"
+
+[target.x86_64-nyx]
+# Tell Cargo how to run QEMU
 runner = "bootimage runner"

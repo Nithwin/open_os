@@ -1,7 +1,14 @@
 [package]
 name = "open_os"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
 
 [dependencies]
 bootloader = "0.9.23"
+
+# Force the OS to abort immediately on crash to save memory space
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+panic = "abort"
