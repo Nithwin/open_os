@@ -5,6 +5,9 @@
 //! one ASCII byte plus one color byte.
 
 use core::fmt;
+use spin::Mutex;
+use lazy_static::lazy_static;
+
 #[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
@@ -168,4 +171,65 @@ impl fmt::Write for Writer {
         self.write_string(s);
         Ok(())
     }
+}
+
+
+
+lazy_static! {
+    // We wrap the Writer in a Spinlock Mutex to make it globally safe!
+    pub static ref WRITER: Mutex<Writer> = Mutex::new(Writer {
+        column_position: 0,
+        row_position: 0,
+        color_code: ColorCode::new(Color::Yellow, Color::Black),
+        buffer: unsafe { &mut *(0xb8000 as *mut Buffer) },
+    });
+}
+
+
+// A hidden function that our macros call to perform the actual formatted write.
+//
+// Why `fmt::Arguments` and `format_args!()`?
+// - `format_args!()` creates a `fmt::Arguments` value which encapsulates the
+//   formatting instructions and arguments without allocating memory. This is
+//   zero-cost and ideal for `no_std` environments.
+// - `_print()` receives the `fmt::Arguments`, locks the global writer, and
+//   forwards the arguments to `write_fmt()` which performs the formatting.
+//
+// Example usages (both expand to `_print(format_args!(...))`):
+// - `print!("Hello")` -> `_print(format_args!("Hello"))`
+// - `print!("Value: {}", 42)` -> `_print(format_args!("Value: {}", 42))`
+#[doc(hidden)]
+pub fn _print(args: fmt::Arguments) {
+    use core::fmt::Write;
+    // Lock the global writer, write the formatted arguments, then drop the lock.
+    WRITER.lock().write_fmt(args).unwrap();
+}
+
+// Exported `print!` macro
+//
+// - `#[macro_export]` makes the macro available to other modules/crates as
+//   `print!()` (instead of being private to this module).
+// - The macro accepts any token stream compatible with Rust's formatting
+//   machinery and forwards it to `_print` via `format_args!()`.
+//
+// Note: `format_args!()` is used even when there are no `{}` placeholders.
+// It is cheap and lets a single macro handle both literal strings and
+// formatted strings with placeholders.
+#[macro_export]
+macro_rules! print {
+    ($($arg:tt)*) => ($crate::vga_buffer::_print(format_args!($($arg)*)));
+}
+
+// Exported `println!` macro
+//
+// Two patterns are supported:
+// - `println!()` -> just prints a newline
+// - `println!("fmt", args...)` -> prints formatted text followed by a newline
+//
+// Both forms ultimately call `print!()` so they benefit from the same
+// `format_args!()` zero-cost formatting behavior.
+#[macro_export]
+macro_rules! println {
+    () => ($crate::print!("\n"));
+    ($($arg:tt)*) => ($crate::print!("{}\n", format_args!($($arg)*)));
 }
