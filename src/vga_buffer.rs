@@ -7,6 +7,7 @@
 use core::fmt;
 use spin::Mutex;
 use lazy_static::lazy_static;
+use volatile::Volatile;
 
 #[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -78,7 +79,7 @@ const BUFFER_WIDTH: usize = 80;
 /// Each cell is 2 bytes (ASCII + color), so total = 80 * 25 * 2 = 4000 bytes.
 /// #[repr(transparent)] ensures this struct has the same layout as the inner array.
 pub struct Buffer {
-    chars: [[ScreenChar; BUFFER_WIDTH]; BUFFER_HEIGHT],
+    chars: [[Volatile<ScreenChar>; BUFFER_WIDTH]; BUFFER_HEIGHT],
 }
 
 /// Stateful writer for text output to VGA buffer.
@@ -110,10 +111,10 @@ impl Writer {
                 let col = self.column_position;
                 let color_code = self.color_code;
 
-                self.buffer.chars[row][col] = ScreenChar {
+                self.buffer.chars[row][col].write(ScreenChar {
                     ascii_character: byte,
                     color_code,
-                };
+                });
                 self.column_position += 1;
             }
         }
@@ -144,8 +145,10 @@ impl Writer {
         } else {
             // Scroll: copy each row upward by one position.
             for row in 1..BUFFER_HEIGHT {
-                let character = self.buffer.chars[row];
-                self.buffer.chars[row - 1] = character;
+                for col in 0..BUFFER_WIDTH {
+                    let character = self.buffer.chars[row][col].read();
+                    self.buffer.chars[row - 1][col].write(character);
+                }
             }
             self.clear_row(BUFFER_HEIGHT - 1);
         }
@@ -158,7 +161,7 @@ impl Writer {
             color_code: self.color_code,
         };
         for col in 0..BUFFER_WIDTH {
-            self.buffer.chars[row][col] = blank;
+            self.buffer.chars[row][col].write(blank);
         }
     }
 }

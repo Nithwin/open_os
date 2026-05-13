@@ -1,48 +1,40 @@
+// 1. THIS MUST BE THE ABSOLUTE FIRST LINE
+#![feature(abi_x86_interrupt)]
 #![no_std]
 #![no_main]
 
-//! NyxOS - A bare-metal OS kernel.
-//!
-//! This is the entry point for the kernel. It initializes the VGA text buffer
-//! and prints boot messages. Since there's no standard library, we use `#![no_std]`
-//! and define a custom panic handler.
-
 pub mod vga_buffer;
+pub mod gdt;         // GDT + TSS setup — MUST be loaded before the IDT
+pub mod interrupts;  // IDT with exception handlers
 
 use core::panic::PanicInfo;
-use core::fmt::Write;
 
-/// Panic handler: called when a panic occurs.
-///
-/// In a full OS, this would log the panic and halt gracefully.
-/// For now, we loop forever (the CPU will eventually halt or continue spinning).
 #[panic_handler]
-fn panic(_info: &PanicInfo) -> ! {
+fn panic(info: &PanicInfo) -> ! {
+    println!("{}", info);
     loop {}
 }
 
-/// Kernel entry point.
-///
-/// This function is called by the bootloader after setting up basic CPU state.
-/// The `#[unsafe(no_mangle)]` and `extern "C"` ensure the linker can find this
-/// symbol and call it using C calling conventions.
-///
-/// # Safety
-/// This function uses unsafe to cast a raw pointer to VGA text buffer memory
-/// (0xb8000) into a mutable reference. This is safe only if:
-/// - The OS is running on x86 in real mode or protected mode
-/// - The physical address 0xb8000 is mapped to VGA memory
-/// - Nothing else writes to this memory simultaneously
 #[unsafe(no_mangle)]
 pub extern "C" fn _start() -> ! {
-    let os_name = "NyxOS";
-    let version = 1;
+    // 2. Clear the old text and print the new boot sequence
+    println!("NyxOS is waking up...");
+
+    // 3. Load the GDT+TSS first — the CPU needs a valid TSS to handle interrupts
+    gdt::init();
+    println!("GDT and TSS loaded.");
     
-    // Write boot messages using the VGA writer.
-    // We can use both direct write_string() and formatted write!() macro.
-    println!("Hello this is Nithwin");
-    print!("This is my custom print function");
-    // Infinite loop: keep the OS running.
-    // In a real OS, this would dispatch interrupts, manage processes, etc.
-    loop {}
+    // 4. NOW load the IDT (the exception handler table)
+    interrupts::init_idt();
+    println!("Interrupt Descriptor Table loaded.");
+
+    // 5. NOW we trigger the breakpoint, safely caught by the IDT
+    x86_64::instructions::interrupts::int3();
+
+    println!("It didn't crash! The CPU returned execution back to the OS!");
+
+    // 6. The infinite loop must be at the very bottom, OUTSIDE of everything else
+    loop {
+        x86_64::instructions::hlt(); // Halt the CPU until the next interrupt
+    }
 }
